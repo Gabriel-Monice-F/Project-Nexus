@@ -1,29 +1,29 @@
+require('dotenv').config(); // Carrega as credenciais do arquivo .env
 const sql = require('mssql');
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
 const app = express();
-app.use(cors()); // Permite que o HTML acesse a API
+app.use(cors()); // Permite acesso da sua página HTML
 app.use(express.json());
 
-// --- CONFIGURAÇÃO DO BANCO DE DADOS ---
+// --- CONFIGURAÇÃO DO BANCO DE DADOS (VIA VARIÁVEIS DE AMBIENTE) ---
 const config = {
-    user: 'DATAMAXI',
-    password: 'DTM.4332',
-    server: 'datamaxi-adm.crju7xrjlmnz.sa-east-1.rds.amazonaws.com', 
-    database: 'dtmremoto',
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    server: process.env.DB_SERVER, 
+    database: process.env.DB_NAME,
     options: {
-        encrypt: true, // Use true para Azure ou conexões seguras
-        trustServerCertificate: true // Importante para redes locais/desenvolvimento
+        encrypt: true, // Necessário para AWS RDS / Azure
+        trustServerCertificate: true // Útil para desenvolvimento local
     }
 };
 
-// --- ROTA DA API ---
-
+// --- ROTA DA API PARA BUSCAR CHAMADOS ---
 app.get('/api/chamados', async (req, res) => {
     try {
-        const { dataInicio, dataFim } = req.query;
+        const { dataFim } = req.query; // Recebe a data final para o filtro de 90 dias
         let pool = await sql.connect(config);
         
         const query = `
@@ -51,15 +51,15 @@ app.get('/api/chamados', async (req, res) => {
             LEFT JOIN tb_rt_chamado_referencia AS f ON c.codigo_referencia = f.codigo_referencia
             LEFT JOIN tb_rt_chamado_subreferencia AS g ON c.codigo_subreferencia = g.codigo_subreferencia
             LEFT JOIN tb_rt_chamado_status AS h ON c.status = h.codigo_status
-            WHERE b.codigo_tecnico IN (105, 23, 39, 118, 126, 159, 174, 191, 556,558) 
-        AND c.codigo_referencia IN (700, 730)
-        -- Puxa 90 dias antes da data final escolhida para ter histórico para a ABC
+        WHERE b.codigo_tecnico IN (105, 23, 39, 118, 126, 159, 174, 191, 556, 558) 
+        AND c.codigo_referencia IN (700, 701, 702) -- Garanta que estes IDs cobrem as referências desejadas
         AND a.data_inicio >= DATEADD(DAY, -90, '${dataFim}')
         AND a.data_inicio <= '${dataFim} 23:59:59'
-        ORDER BY c.CODIGO_CHAMADO DESC, a.data_inicio ASC`; // Ordenação cronológica para o log
+        ORDER BY c.CODIGO_CHAMADO DESC, a.data_inicio ASC`;
 
         let result = await pool.request().query(query);
         
+        // Agrupamento para consolidar atendimentos dentro do mesmo chamado
         const agrupado = result.recordset.reduce((acc, curr) => {
             if (!acc[curr.cod_chamado]) {
                 acc[curr.cod_chamado] = {
@@ -74,18 +74,16 @@ app.get('/api/chamados', async (req, res) => {
             
             const valorHoras = parseFloat(curr.HORAS) || 0;
             
-            // Adiciona cada interação do usuário ao array de inclusões
             acc[curr.cod_chamado].inclusoes.push({
                 dia: curr.DIA,
                 inicio: curr.INICIO,
                 fim: curr.FIM,
                 horas: valorHoras.toFixed(2),
                 texto: curr.log_texto,
-                tecnico_acao: curr.tecnico // Caso queira mostrar quem fez a ação específica
+                tecnico_acao: curr.tecnico 
             });
 
             acc[curr.cod_chamado].totalHorasChamado += valorHoras;
-            // O término do chamado passa a ser o término da última ação registrada
             acc[curr.cod_chamado].data_fim = curr.data_bruta_fim; 
 
             return acc;
@@ -93,18 +91,21 @@ app.get('/api/chamados', async (req, res) => {
 
         res.json(Object.values(agrupado));
     } catch (err) {
+        console.error("Erro na API:", err.message);
         res.status(500).send(err.message);
     }
 });
 
-// Inicialização do servidor
-const PORT = 3000;
+// Servir os arquivos estáticos (HTML, CSS, JS do frontend)
 app.use(express.static(__dirname));
+
+// Inicialização do servidor
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`
     -------------------------------------------
-    🚀 Servidor de Relatórios Rodando!
-    URL: http://localhost:${PORT}/api/chamados
+    🚀 Nexus Report: Servidor Ativo!
+    URL: http://localhost:${PORT}
     -------------------------------------------
     `);
 });
