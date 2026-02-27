@@ -4,5 +4,30 @@
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
     "mssql": "^12.2.0"
-  }
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11",
+    "browser-sync": "^3.0.2"
+  },
+  "name": "dashboard_treinamentosv2",
+  "version": "1.0.0",
+  "description": "🚀 Nexus Report\r Nexus Report is an Operational Intelligence dashboard designed to transform raw SQL data into actionable insights. It centralizes ticket KPIs, ABC Curve analysis, and features a dynamic Training Matrix (E1-F4) to track module implementation progress across clients in real-time.",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gabriel-Monice-F/Project-Nexus.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Gabriel-Monice-F/Project-Nexus/issues"
+  },
+  "homepage": "https://github.com/Gabriel-Monice-F/Project-Nexus#readme"
 }
