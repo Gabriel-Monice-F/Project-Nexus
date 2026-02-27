@@ -18,14 +18,5 @@ Documentation/Export: html2canvas & jsPDF.
 📖 How the Training Matrix Works
 The matrix is designed for absolute clarity. It maps Clients vs. Modules. Even if no record exists in the database for a specific module, the system automatically renders a "Not Started" badge in solid gray. This ensures managers can immediately identify implementation gaps.
 
-🚀 Getting Started
-Clone the repository:
-
-Bash
-git clone https://github.com/your-username/nexus-report.git
-Open index.html in your browser or use a Live Server.
-
-Data Schema: Ensure your SQL query returns the following fields: cod_chamado, cliente, tecnico, redef, subref, and status.
-
 👨‍💻 Author
 Gabriel Monice – Lead Developer
