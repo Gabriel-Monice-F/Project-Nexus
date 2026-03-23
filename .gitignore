@@ -1,2 +1,6 @@
 .env
 node_modules/
+.env.example
+build-exe.bat
+GUIA_EXECUTAVEL.md
+start.js
