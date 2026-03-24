@@ -1583,6 +1583,105 @@ async function gerarPDF() {
         return Object.entries(agrupado).map(([nome, d]) => ({ nome, ...d })).sort((a, b) => b.horas - a.horas);
     };
 
+    // GLOBAL: REPORT STATUS (PÁGINA INICIAL)
+    const datainicio = new Date(di);
+    const datafim = new Date(df);
+    const diffTime = Math.abs(datafim - datainicio);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const tipoRelatorio = diffDays <= 7 ? "SEMANAL" : "MENSAL";
+
+    atualizarProgresso("Gerando Report Status...");
+    
+    renderArea.innerHTML = `
+        <div style="width: 100%; height: 100%; margin: 0 auto; font-family: Arial, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(135deg, #1e293b 0%, #334155 100%);">
+            <div style="text-align: center;">
+                <h1 style="color: #2563eb; font-size: 120px; margin: 0; font-weight: 900; text-transform: uppercase; letter-spacing: 2px;">NEXUS</h1>
+                <p style="color: #64748b; font-size: 48px; margin: 20px 0; font-weight: bold;">Report Status</p>
+                <div style="border-top: 3px solid #2563eb; border-bottom: 3px solid #2563eb; padding: 40px 60px; margin: 40px auto; max-width: 800px;">
+                    <p style="color: #e2e8f0; font-size: 52px; font-weight: 900; margin: 0; text-transform: uppercase;">${tipoRelatorio}</p>
+                </div>
+                <p style="color: #94a3b8; font-size: 42px; font-weight: bold; margin-top: 60px;">Período: ${di} à ${df}</p>
+                <div style="margin-top: 120px; border-top: 2px solid #475569; padding-top: 60px;">
+                    <p style="color: #cbd5e1; font-size: 44px; font-weight: bold; margin: 0;">Resp. Washington</p>
+                </div>
+            </div>
+        </div>`;
+    const canvasReportStatus = await html2canvas(renderArea, { scale: 3 });
+    pdf.addImage(canvasReportStatus.toDataURL("image/jpeg", 0.95), 'JPEG', 0, 0, pdfWidth, pdfHeight);
+
+    // GLOBAL: NÚMEROS DA SEMANA
+    if (semanaCheck) {
+        atualizarProgresso("Gerando Resumo Semanal...");
+        pdf.addPage();
+
+        const dadosGlobal = allData.filter(d => {
+            const dt = d.data_bruta_inicio ? d.data_bruta_inicio.substring(0, 10) : "";
+            const isClientSelected = clientesSelecionadosPDF.includes(d.cliente || 'Sem Cliente');
+            return tecnicosParaExportar.includes(d.tecnico) && dt >= di && dt <= df && isClientSelected;
+        });
+
+        const totalH = dadosGlobal.reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
+        const uniqueTickets = new Set(dadosGlobal.map(d => d.cod_chamado)).size;
+        const qtdTecnicos = tecnicosParaExportar.length || 1;
+        const horasCapacidade = calcularCapacidade(di, df, qtdTecnicos);
+        const aproveitamento = horasCapacidade > 0 ? ((totalH / horasCapacidade) * 100).toFixed(1) : 0;
+        const mediaPorTec = (totalH / qtdTecnicos).toFixed(1);
+
+        let htmlIntegrantes = '';
+        tecnicosParaExportar.forEach(tec => {
+            const dadosTec = dadosGlobal.filter(d => d.tecnico === tec);
+            const hT = dadosTec.reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
+            const cT = new Set(dadosTec.map(d => d.cod_chamado)).size;
+            const aT = dadosTec.reduce((acc, t) => acc + (t.inclusoes ? t.inclusoes.length : 0), 0);
+            
+            htmlIntegrantes += `
+                <div style="background: #fff; padding: 20px; border: 1px solid #f1f5f9; border-radius: 15px; flex: 1; min-width: 280px; max-width: 320px; margin-bottom: 20px; box-sizing: border-box;">
+                    <p style="font-size: 14px; font-weight: 900; color: #2563eb; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">${tec}</p>
+                    <div style="font-size: 32px; font-weight: 900; color: #1e293b;">${hT.toFixed(1)}h</div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 15px; border-top: 1px solid #f8fafc; padding-top: 15px;">
+                        <div style="text-align: center; flex: 1; border-right: 1px solid #f1f5f9;">
+                            <div style="font-size: 18px; font-weight: 900; color: #1e293b;">${cT}</div>
+                            <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Tickets</div>
+                        </div>
+                        <div style="text-align: center; flex: 1;">
+                            <div style="font-size: 18px; font-weight: 900; color: #2563eb;">${aT}</div>
+                            <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Ações</div>
+                        </div>
+                    </div>
+                </div>`;
+        });
+
+        renderArea.innerHTML = `
+            <div style="width: 100%; margin: 0 auto; font-family: Arial, sans-serif;">
+                <div style="border-bottom: 5px solid #2563eb; padding-bottom: 15px; margin-bottom: 50px;">
+                    <h1 style="color: #2563eb; font-size: 42px; margin: 0; font-weight: 900; text-transform: uppercase;">Números da Semana (Consolidado)</h1>
+                    <p style="color: #64748b; font-size: 18px; margin-top: 10px;">Período: ${di} à ${df} | Técnicos: ${qtdTecnicos}</p>
+                </div>
+                <div style="display: flex; gap: 30px; margin-bottom: 50px;">
+                    <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                        <p style="font-size: 14px; font-weight: 900; color: #2563eb; text-transform: uppercase; margin-bottom: 10px;">Total Horas</p>
+                        <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${totalH.toFixed(1)}h</h2>
+                    </div>
+                    <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                        <p style="font-size: 14px; font-weight: 900; color: #059669; text-transform: uppercase; margin-bottom: 10px;">Chamados</p>
+                        <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${uniqueTickets}</h2>
+                    </div>
+                    <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                        <p style="font-size: 14px; font-weight: 900; color: #7c3aed; text-transform: uppercase; margin-bottom: 10px;">Média / Téc</p>
+                        <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${mediaPorTec}h</h2>
+                    </div>
+                    <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                        <p style="font-size: 14px; font-weight: 900; color: #ea580c; text-transform: uppercase; margin-bottom: 10px;">Eficiência</p>
+                        <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${aproveitamento}%</h2>
+                    </div>
+                </div>
+                <h3 style="color: #64748b; font-size: 20px; font-weight: 900; text-transform: uppercase; margin-bottom: 25px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px;">Detalhamento por Integrante</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 15px;">${htmlIntegrantes}</div>
+            </div>`;
+        const canvas = await html2canvas(renderArea, { scale: 3 });
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), 'JPEG', 0, 0, pdfWidth, pdfHeight);
+    }
+
     try {
         for (let i = 0; i < tecnicosParaExportar.length; i++) {
             const tec = tecnicosParaExportar[i];
@@ -1702,7 +1801,7 @@ async function gerarPDF() {
                 </div>
             `;
             const canvas = await html2canvas(renderArea, { scale: 3, useCORS: true });
-            if (i > 0) pdf.addPage();
+            if (i > 0 || (i === 0 && semanaCheck)) pdf.addPage();
             pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), 'JPEG', 0, 0, pdfWidth, pdfHeight);
         }
 
@@ -1710,79 +1809,6 @@ async function gerarPDF() {
         tecnicosSelecionados = new Set(tecnicosParaExportar);
         await render();
         await new Promise(r => setTimeout(r, 1000));
-
-        // GLOBAL: NÚMEROS DA SEMANA
-        if (semanaCheck) {
-            atualizarProgresso("Gerando Resumo Semanal...");
-            pdf.addPage();
-
-            const dadosGlobal = allData.filter(d => {
-                const dt = d.data_bruta_inicio ? d.data_bruta_inicio.substring(0, 10) : "";
-                const isClientSelected = clientesSelecionadosPDF.includes(d.cliente || 'Sem Cliente');
-                return tecnicosParaExportar.includes(d.tecnico) && dt >= di && dt <= df && isClientSelected;
-            });
-
-            const totalH = dadosGlobal.reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
-            const uniqueTickets = new Set(dadosGlobal.map(d => d.cod_chamado)).size;
-            const qtdTecnicos = tecnicosParaExportar.length || 1;
-            const horasCapacidade = calcularCapacidade(di, df, qtdTecnicos);
-            const aproveitamento = horasCapacidade > 0 ? ((totalH / horasCapacidade) * 100).toFixed(1) : 0;
-            const mediaPorTec = (totalH / qtdTecnicos).toFixed(1);
-
-            let htmlIntegrantes = '';
-            tecnicosParaExportar.forEach(tec => {
-                const dadosTec = dadosGlobal.filter(d => d.tecnico === tec);
-                const hT = dadosTec.reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
-                const cT = new Set(dadosTec.map(d => d.cod_chamado)).size;
-                const aT = dadosTec.reduce((acc, t) => acc + (t.inclusoes ? t.inclusoes.length : 0), 0);
-                
-                htmlIntegrantes += `
-                    <div style="background: #fff; padding: 20px; border: 1px solid #f1f5f9; border-radius: 15px; flex: 1; min-width: 280px; max-width: 320px; margin-bottom: 20px; box-sizing: border-box;">
-                        <p style="font-size: 14px; font-weight: 900; color: #2563eb; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">${tec}</p>
-                        <div style="font-size: 32px; font-weight: 900; color: #1e293b;">${hT.toFixed(1)}h</div>
-                        <div style="display: flex; justify-content: space-between; margin-top: 15px; border-top: 1px solid #f8fafc; padding-top: 15px;">
-                            <div style="text-align: center; flex: 1; border-right: 1px solid #f1f5f9;">
-                                <div style="font-size: 18px; font-weight: 900; color: #1e293b;">${cT}</div>
-                                <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Tickets</div>
-                            </div>
-                            <div style="text-align: center; flex: 1;">
-                                <div style="font-size: 18px; font-weight: 900; color: #2563eb;">${aT}</div>
-                                <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Ações</div>
-                            </div>
-                        </div>
-                    </div>`;
-            });
-
-            renderArea.innerHTML = `
-                <div style="width: 100%; margin: 0 auto; font-family: Arial, sans-serif;">
-                    <div style="border-bottom: 5px solid #2563eb; padding-bottom: 15px; margin-bottom: 50px;">
-                        <h1 style="color: #2563eb; font-size: 42px; margin: 0; font-weight: 900; text-transform: uppercase;">Números da Semana (Consolidado)</h1>
-                        <p style="color: #64748b; font-size: 18px; margin-top: 10px;">Período: ${di} à ${df} | Técnicos: ${qtdTecnicos}</p>
-                    </div>
-                    <div style="display: flex; gap: 30px; margin-bottom: 50px;">
-                        <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                            <p style="font-size: 14px; font-weight: 900; color: #2563eb; text-transform: uppercase; margin-bottom: 10px;">Total Horas</p>
-                            <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${totalH.toFixed(1)}h</h2>
-                        </div>
-                        <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                            <p style="font-size: 14px; font-weight: 900; color: #059669; text-transform: uppercase; margin-bottom: 10px;">Chamados</p>
-                            <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${uniqueTickets}</h2>
-                        </div>
-                        <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                            <p style="font-size: 14px; font-weight: 900; color: #7c3aed; text-transform: uppercase; margin-bottom: 10px;">Média / Téc</p>
-                            <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${mediaPorTec}h</h2>
-                        </div>
-                        <div style="flex: 1; background: #fff; border: 1px solid #e2e8f0; padding: 30px; border-radius: 25px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                            <p style="font-size: 14px; font-weight: 900; color: #ea580c; text-transform: uppercase; margin-bottom: 10px;">Eficiência</p>
-                            <h2 style="font-size: 48px; font-weight: 900; color: #1e293b; margin: 0;">${aproveitamento}%</h2>
-                        </div>
-                    </div>
-                    <h3 style="color: #64748b; font-size: 20px; font-weight: 900; text-transform: uppercase; margin-bottom: 25px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px;">Detalhamento por Integrante</h3>
-                    <div style="display: flex; flex-wrap: wrap; gap: 15px;">${htmlIntegrantes}</div>
-                </div>`;
-            const canvas = await html2canvas(renderArea, { scale: 3 });
-            pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), 'JPEG', 0, 0, pdfWidth, pdfHeight);
-        }
 
         // GLOBAL: TREINAMENTOS
         if (treinoCheck) {
@@ -1980,6 +2006,7 @@ async function gerarPDF() {
 
             // Troca para a aba de evolução para garantir que o gráfico seja renderizado e capturado
             switchTab('evolucao');
+            await render(); // Re-renderiza para garantir que o gráfico seja desenhado corretamente
             await new Promise(r => setTimeout(r, 1500)); // Aguarda animação/renderização
 
             // Captura o card inteiro da tela (Print da tela como solicitado)
