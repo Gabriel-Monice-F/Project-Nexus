@@ -271,50 +271,60 @@ app.get('/', (req, res) => {
 
 app.use('/NexusProject', express.static(__dirname));
 
-// --- ROTA DE HEALTH CHECK ---
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// --- TRATAMENTO GLOBAL DE ERROS ---
-process.on('unhandledRejection', (reason) => {
-    console.error('❌ Promise rejection não tratado:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-    console.error('❌ Exceção não capturada:', error);
-    console.log('🔄 Reiniciando em 5 segundos...');
-    setTimeout(() => process.exit(1), 5000);
-});
-
-// --- INICIALIZAÇÃO DO SERVIDOR ---
+// Inicialização do servidor
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-    console.log(`\n    ═══════════════════════════════════════════════════════\n    ✅ NEXUS REPORT - SERVIDOR ATIVO\n    ═══════════════════════════════════════════════════════\n    📍 URL: http://localhost:${PORT}\n    🌐 Abra no navegador: http://localhost:${PORT}\n    ⏹️  Pressione Ctrl+C para parar\n    ═══════════════════════════════════════════════════════\n    `);\n});
+app.listen(PORT, () => {
+    console.log(`
+    -------------------------------------------
+    🚀 Nexus Report: Servidor Ativo!
+    URL: http://localhost:${PORT}
+    -------------------------------------------
+    `);
 
-});
+   
+        try {
+            const browserSync = require('browser-sync').create();
+            browserSync.init({
+                proxy: `http://localhost:${PORT}`, 
+                files: [
+                    'index.html' 
+                ],
+                port: 4000, 
+                open: false,
+                notify: false, 
+                ui: false, 
+                ghostMode: false 
+            });
 
-// --- TRATAMENTO DE ERRO DO SERVIDOR ---
-server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ Erro: Porta ${PORT} já está em uso!`);
-        console.error('Execute: Parar_Nexus.bat e tente novamente\n');
-    } else {
-        console.error('❌ Erro ao iniciar servidor:', err.message);
-    }
-    process.exit(1);
-});
+            // Função para detectar o IP da máquina na rede local automaticamente
+            const getNetworkIp = () => {
+                const interfaces = os.networkInterfaces();
+                for (const name of Object.keys(interfaces)) {
+                    for (const iface of interfaces[name]) {
+                        if ((iface.family === 'IPv4' || iface.family === 4) && !iface.internal) {
+                            return iface.address;
+                        }
+                    }
+                }
+                return 'localhost';
+            };
+            const machineIp = getNetworkIp();
 
-// --- GRACEFUL SHUTDOWN ---
-process.on('SIGINT', () => {
-    console.log('\n\n🛑 Encerrando servidor...');
-    server.close(() => {
-        console.log('✅ Servidor encerrado com sucesso\n');
-        process.exit(0);
-    });
-    
-    setTimeout(() => {
-        console.error('❌ Timeout - forçando encerramento');
-        process.exit(1);
-    }, 10000);
+            console.log(`
+    🔥 Hot-Reload Ativo!
+    Local:       http://localhost:4000/NexusProject
+    Rede (Nome): http://nexusProject:4000/NexusProject
+    Rede (IP):   http://${machineIp}:4000/NexusProject
+    -------------------------------------------
+            `);
+        } catch (err) {
+            console.log(`
+    -------------------------------------------
+    ⚠️  Aviso: O Hot-Reload (browser-sync) não pôde ser iniciado.
+    Causa: Módulo 'browser-sync' não encontrado.
+    Solução: Pare o servidor (Ctrl+C) e rode 'npm install' no terminal.
+    O servidor principal continua funcionando em http://localhost:${PORT}
+    -------------------------------------------
+            `);
+        }
 });
