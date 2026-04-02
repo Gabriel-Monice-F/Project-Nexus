@@ -17,28 +17,67 @@ const config = {
     database: process.env.DB_NAME,
     pool: {
         max: 10, 
-        min: 0,  
+        min: 2,  // Aumentado para manter conexão sempre pronta
         idleTimeoutMillis: 30000 
     },
     connectTimeout: 60000, 
     requestTimeout: 300000, 
+    connectionTimeout: 60000,
     options: {
         encrypt: true, 
-        trustServerCertificate: true 
+        trustServerCertificate: true,
+        enableArithAbort: true
     }
 };
 
-// --- INICIALIZAÇÃO DO POOL DE CONEXÃO (SINGLETON) ---
+// --- INICIALIZAÇÃO DO POOL DE CONEXÃO (COM RECONEXÃO AUTOMÁTICA) ---
 
-let poolPromise = sql.connect(config)
-    .then(pool => {
-        console.log('✅ Conectado ao SQL Server com sucesso!');
-        return pool;
-    })
-    .catch(err => {
-        console.error('❌ Falha na conexão inicial com o Banco de Dados:', err);
-        process.exit(1); // Encerra se não conseguir conectar no início
-    });
+let poolPromise = null;
+let connectionAttempts = 0;
+const MAX_ATTEMPTS = 5;
+const RETRY_DELAY = 5000;
+
+function criarConexao() {
+    if (connectionAttempts >= MAX_ATTEMPTS) {
+        console.error('\n❌ Falha ao conectar ao banco de dados após múltiplas tentativas!');
+        console.error('Verifique:');
+        console.error('  1. DB_USER, DB_PASS, DB_SERVER, DB_NAME no arquivo .env');
+        console.error('  2. Se SQL Server está ligado e acessível');
+        console.error('  3. Conexão de rede e firewall\n');
+        process.exit(1);
+    }
+    
+    connectionAttempts++;
+    console.log(`🔄 Conectando ao banco... (tentativa ${connectionAttempts}/${MAX_ATTEMPTS})`);
+    
+    return sql.connect(config)
+        .then(pool => {
+            console.log('✅ Conectado ao SQL Server com sucesso!');
+            connectionAttempts = 0;
+            
+            pool.on('error', (err) => {
+                console.error('⚠️  Conexão com banco perdida:', err.message);
+                poolPromise = null;
+                setTimeout(() => {
+                    poolPromise = criarConexao();
+                }, RETRY_DELAY);
+            });
+            
+            return pool;
+        })
+        .catch(err => {
+            console.error(`❌ Erro na tentativa ${connectionAttempts}:`, err.message);
+            console.log(`⏳ Tentando novamente em ${RETRY_DELAY/1000}s...\n`);
+            
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    criarConexao().then(resolve);
+                }, RETRY_DELAY);
+            });
+        });
+}
+
+poolPromise = criarConexao();
 
 // --- ROTA DA API PARA BUSCAR CHAMADOS ---
 app.get('/api/chamados', async (req, res) => {
@@ -232,60 +271,50 @@ app.get('/', (req, res) => {
 
 app.use('/NexusProject', express.static(__dirname));
 
-// Inicialização do servidor
+// --- ROTA DE HEALTH CHECK ---
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// --- TRATAMENTO GLOBAL DE ERROS ---
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Promise rejection não tratado:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Exceção não capturada:', error);
+    console.log('🔄 Reiniciando em 5 segundos...');
+    setTimeout(() => process.exit(1), 5000);
+});
+
+// --- INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`
-    -------------------------------------------
-    🚀 Nexus Report: Servidor Ativo!
-    URL: http://localhost:${PORT}
-    -------------------------------------------
-    `);
+const server = app.listen(PORT, () => {
+    console.log(`\n    ═══════════════════════════════════════════════════════\n    ✅ NEXUS REPORT - SERVIDOR ATIVO\n    ═══════════════════════════════════════════════════════\n    📍 URL: http://localhost:${PORT}\n    🌐 Abra no navegador: http://localhost:${PORT}\n    ⏹️  Pressione Ctrl+C para parar\n    ═══════════════════════════════════════════════════════\n    `);\n});
 
-   
-        try {
-            const browserSync = require('browser-sync').create();
-            browserSync.init({
-                proxy: `http://localhost:${PORT}`, 
-                files: [
-                    'index.html' 
-                ],
-                port: 4000, 
-                open: false,
-                notify: false, 
-                ui: false, 
-                ghostMode: false 
-            });
+});
 
-            // Função para detectar o IP da máquina na rede local automaticamente
-            const getNetworkIp = () => {
-                const interfaces = os.networkInterfaces();
-                for (const name of Object.keys(interfaces)) {
-                    for (const iface of interfaces[name]) {
-                        if ((iface.family === 'IPv4' || iface.family === 4) && !iface.internal) {
-                            return iface.address;
-                        }
-                    }
-                }
-                return 'localhost';
-            };
-            const machineIp = getNetworkIp();
+// --- TRATAMENTO DE ERRO DO SERVIDOR ---
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Erro: Porta ${PORT} já está em uso!`);
+        console.error('Execute: Parar_Nexus.bat e tente novamente\n');
+    } else {
+        console.error('❌ Erro ao iniciar servidor:', err.message);
+    }
+    process.exit(1);
+});
 
-            console.log(`
-    🔥 Hot-Reload Ativo!
-    Local:       http://localhost:4000/NexusProject
-    Rede (Nome): http://nexusProject:4000/NexusProject
-    Rede (IP):   http://${machineIp}:4000/NexusProject
-    -------------------------------------------
-            `);
-        } catch (err) {
-            console.log(`
-    -------------------------------------------
-    ⚠️  Aviso: O Hot-Reload (browser-sync) não pôde ser iniciado.
-    Causa: Módulo 'browser-sync' não encontrado.
-    Solução: Pare o servidor (Ctrl+C) e rode 'npm install' no terminal.
-    O servidor principal continua funcionando em http://localhost:${PORT}
-    -------------------------------------------
-            `);
-        }
+// --- GRACEFUL SHUTDOWN ---
+process.on('SIGINT', () => {
+    console.log('\n\n🛑 Encerrando servidor...');
+    server.close(() => {
+        console.log('✅ Servidor encerrado com sucesso\n');
+        process.exit(0);
+    });
+    
+    setTimeout(() => {
+        console.error('❌ Timeout - forçando encerramento');
+        process.exit(1);
+    }, 10000);
 });

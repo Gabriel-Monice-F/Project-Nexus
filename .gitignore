@@ -4,3 +4,5 @@ node_modules/
 build-exe.bat
 GUIA_EXECUTAVEL.md
 start.js
+Nexus.bat
+Parar_Nexus.bat
