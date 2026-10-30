@@ -18,7 +18,7 @@
     .modal-active { display: flex !important; }
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .resizable-chart { height: 350px; width: 100%; } @media (min-width: 1536px) { .resizable-chart { height: 500px; } }
     .legend-container { max-height: 350px; overflow-y: auto; }
     .legend-item { display: flex; align-items: center; margin-bottom: 8px; font-size: 11px; cursor: pointer; }
@@ -212,7 +212,7 @@
     body.layout-tv #abc span.text-2xl {
         font-size: 3rem !important;
     }
-    body.layout-tv #abc span.text-[10px] {
+    body.layout-tv #abc span.text-\[10px\] {
         font-size: 1rem !important;
     }
     body.layout-tv #abc-lista {
@@ -690,6 +690,47 @@
                     </div>
                 </div>
             </div>
+            <!-- FALTAS / AUSÊNCIAS -->
+            <div class="border-t border-slate-100 mt-6 pt-4">
+                <div class="flex items-center justify-between cursor-pointer group" onclick="toggleConfigSection('ausencias')">
+                    <p class="text-xs font-black uppercase group-hover:text-blue-600 transition-colors">Faltas / Ausência de Horas (Capacidade)</p>
+                    <svg id="arrow-ausencias" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+                <div id="section-ausencias" class="hidden mt-3 animate-fade-in">
+                    <p class="text-[9px] font-bold text-slate-400 uppercase mb-3">As horas declaradas aqui são descontadas da capacidade do técnico (somente dias úteis, máx. 7h/dia).</p>
+                    <div class="grid grid-cols-2 gap-2 mb-2">
+                        <div class="col-span-2">
+                            <p class="text-[9px] font-black uppercase mb-1 text-slate-400">Técnico</p>
+                            <input type="text" id="aus-tecnico" list="aus-tecnicos-datalist" placeholder="Selecione ou digite o nome..." class="w-full bg-slate-100 p-3 rounded-xl text-xs font-bold outline-none border border-slate-200 uppercase">
+                            <datalist id="aus-tecnicos-datalist"></datalist>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black uppercase mb-1 text-slate-400">De</p>
+                            <input type="date" id="aus-inicio" class="w-full bg-slate-100 p-3 rounded-xl text-xs font-bold outline-none border border-slate-200">
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black uppercase mb-1 text-slate-400">Até</p>
+                            <input type="date" id="aus-fim" class="w-full bg-slate-100 p-3 rounded-xl text-xs font-bold outline-none border border-slate-200">
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black uppercase mb-1 text-slate-400">Tipo</p>
+                            <select id="aus-tipo" onchange="onTipoAusenciaChange()" class="w-full bg-slate-100 p-3 rounded-xl text-xs font-bold outline-none border border-slate-200">
+                                <option value="falta">Falta (dia inteiro)</option>
+                                <option value="horas">Ausência de horas</option>
+                            </select>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black uppercase mb-1 text-slate-400">Horas por dia</p>
+                            <input type="number" id="aus-horas" value="7" min="0.5" max="7" step="0.5" class="w-full bg-slate-100 p-3 rounded-xl text-xs font-bold outline-none border border-slate-200 disabled:opacity-50">
+                        </div>
+                        <div class="col-span-2 flex gap-2">
+                            <input type="text" id="aus-motivo" placeholder="Motivo (opcional): atestado, férias, consulta..." class="flex-1 bg-slate-100 p-3 rounded-xl text-xs font-bold outline-none border border-slate-200">
+                            <button onclick="adicionarAusencia()" class="bg-blue-600 text-white px-4 rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors">ADD</button>
+                        </div>
+                    </div>
+                    <div id="aus-lista" class="space-y-1 max-h-40 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-100"></div>
+                </div>
+            </div>
             <button onclick="fecharConfig()" class="w-full bg-slate-900 text-white mt-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">Fechar</button>
         </div>
     </div>
@@ -1017,6 +1058,163 @@ function formatarDataHora(str) {
             return diasUteis * 7 * qtdTecnicos;
         }
 
+        // =========================================================
+        // FALTAS / AUSÊNCIAS DE HORAS (impactam a capacidade)
+        // =========================================================
+        const HORAS_DIA_UTIL = 7;
+        let ausencias = []; // { id, tecnico, inicio, fim, tipo: 'falta'|'horas', horasDia, motivo }
+
+        const normNome = s => String(s || '').trim().toLowerCase();
+        const fmtH = n => Number((Number(n) || 0).toFixed(2));
+        const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const isDiaUtil = d => d.getDay() !== 0 && d.getDay() !== 6 && !isFeriado(d);
+
+        function loadAusenciasFromStorage() {
+            try {
+                const raw = localStorage.getItem('nexus_ausencias_v1');
+                ausencias = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(ausencias)) ausencias = [];
+            } catch (e) {
+                console.error('Erro ao ler ausências:', e);
+                ausencias = [];
+            }
+        }
+
+        function saveAusenciasToStorage() {
+            localStorage.setItem('nexus_ausencias_v1', JSON.stringify(ausencias));
+        }
+
+        // Horas de ausência de um técnico dentro do período (conta só dias úteis, máx. 7h/dia)
+        function horasAusenciaTecnico(inicio, fim, tecnico) {
+            const alvo = normNome(tecnico);
+            const porDia = {};
+            ausencias.forEach(a => {
+                if (normNome(a.tecnico) !== alvo) return;
+                const ini = a.inicio > inicio ? a.inicio : inicio;
+                const f = a.fim < fim ? a.fim : fim;
+                if (ini > f) return;
+                const cur = new Date(ini + 'T00:00:00');
+                const last = new Date(f + 'T00:00:00');
+                while (cur <= last) {
+                    if (isDiaUtil(cur)) {
+                        const k = ymdLocal(cur);
+                        porDia[k] = Math.min(HORAS_DIA_UTIL, (porDia[k] || 0) + (Number(a.horasDia) || 0));
+                    }
+                    cur.setDate(cur.getDate() + 1);
+                }
+            });
+            return Object.values(porDia).reduce((acc, h) => acc + h, 0);
+        }
+
+        // Capacidade real de um técnico = capacidade base - ausências
+        function calcularCapacidadeTecnico(inicio, fim, tecnico) {
+            const base = calcularCapacidade(inicio, fim, 1);
+            return Math.max(0, fmtH(base - horasAusenciaTecnico(inicio, fim, tecnico)));
+        }
+
+        // Capacidade real de um grupo de técnicos (lista de nomes)
+        function calcularCapacidadeTecnicos(inicio, fim, listaTecnicos) {
+            return fmtH(listaTecnicos.reduce((acc, t) => acc + calcularCapacidadeTecnico(inicio, fim, t), 0));
+        }
+
+        // Total (em horas) de uma única ausência cadastrada (apenas dias úteis)
+        function horasTotaisAusencia(a) {
+            let total = 0;
+            const cur = new Date(a.inicio + 'T00:00:00');
+            const last = new Date(a.fim + 'T00:00:00');
+            while (cur <= last) {
+                if (isDiaUtil(cur)) total += Math.min(HORAS_DIA_UTIL, Number(a.horasDia) || 0);
+                cur.setDate(cur.getDate() + 1);
+            }
+            return total;
+        }
+
+        function formatarDataBR(ymd) {
+            const [y, m, d] = String(ymd).split('-');
+            return `${d}/${m}/${y}`;
+        }
+
+        function onTipoAusenciaChange() {
+            const tipo = document.getElementById('aus-tipo').value;
+            const horas = document.getElementById('aus-horas');
+            if (tipo === 'falta') {
+                horas.value = HORAS_DIA_UTIL;
+                horas.disabled = true;
+            } else {
+                horas.disabled = false;
+                if (Number(horas.value) >= HORAS_DIA_UTIL) horas.value = 2;
+            }
+        }
+
+        function renderAusenciasLista() {
+            const dl = document.getElementById('aus-tecnicos-datalist');
+            if (dl) {
+                const nomes = new Set([
+                    ...(allData || []).map(d => d.tecnico).filter(Boolean),
+                    ...ausencias.map(a => a.tecnico)
+                ]);
+                dl.innerHTML = Array.from(nomes).sort().map(n => `<option value="${escHtml(n)}"></option>`).join('');
+            }
+
+            const di = document.getElementById('aus-inicio');
+            const df = document.getElementById('aus-fim');
+            const hoje = ymdLocal(new Date());
+            if (di && !di.value) di.value = hoje;
+            if (df && !df.value) df.value = hoje;
+            onTipoAusenciaChange();
+
+            const lista = document.getElementById('aus-lista');
+            if (!lista) return;
+            if (ausencias.length === 0) {
+                lista.innerHTML = '<p class="text-[10px] font-bold text-slate-400 uppercase italic p-2">Nenhuma ausência cadastrada.</p>';
+                return;
+            }
+            const ordenadas = [...ausencias].sort((a, b) => b.inicio.localeCompare(a.inicio));
+            lista.innerHTML = ordenadas.map(a => {
+                const periodo = a.inicio === a.fim ? formatarDataBR(a.inicio) : `${formatarDataBR(a.inicio)} → ${formatarDataBR(a.fim)}`;
+                const tipoTxt = a.tipo === 'falta' ? 'Falta (dia inteiro)' : `${fmtH(a.horasDia)}h/dia`;
+                return `
+                    <div class="flex items-center justify-between gap-2 bg-white p-2 rounded-lg text-xs border border-slate-100">
+                        <div class="min-w-0">
+                            <p class="font-black text-slate-700 uppercase text-[10px] truncate">${escHtml(a.tecnico)}</p>
+                            <p class="text-[9px] font-bold text-slate-400">${periodo} · ${tipoTxt} · <span class="text-red-500">−${fmtH(horasTotaisAusencia(a))}h</span>${a.motivo ? ' · ' + escHtml(a.motivo) : ''}</p>
+                        </div>
+                        <button onclick="removerAusencia('${a.id}')" class="text-red-500 hover:text-red-700 font-black px-2">X</button>
+                    </div>`;
+            }).join('');
+        }
+
+        function adicionarAusencia() {
+            const tecnico = document.getElementById('aus-tecnico').value.trim();
+            const inicio = document.getElementById('aus-inicio').value;
+            const fim = document.getElementById('aus-fim').value;
+            const tipo = document.getElementById('aus-tipo').value;
+            const motivo = document.getElementById('aus-motivo').value.trim();
+            let horasDia = tipo === 'falta' ? HORAS_DIA_UTIL : parseFloat(String(document.getElementById('aus-horas').value).replace(',', '.'));
+
+            if (!tecnico) return alert('Informe o técnico.');
+            if (!inicio || !fim) return alert('Informe a data inicial e final.');
+            if (fim < inicio) return alert('A data final não pode ser anterior à inicial.');
+            if (!(horasDia > 0) || horasDia > HORAS_DIA_UTIL) return alert(`Informe as horas de ausência por dia (entre 0,5 e ${HORAS_DIA_UTIL}).`);
+
+            ausencias.push({
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                tecnico, inicio, fim, tipo, horasDia, motivo
+            });
+            saveAusenciasToStorage();
+            document.getElementById('aus-motivo').value = '';
+            renderAusenciasLista();
+            render(); // atualiza capacidade em todo o dashboard
+        }
+
+        function removerAusencia(id) {
+            ausencias = ausencias.filter(a => a.id !== id);
+            saveAusenciasToStorage();
+            renderAusenciasLista();
+            render();
+        }
+
         function ordenarTabela(coluna) {
             if (ordemAtual.coluna === coluna) {
                 ordemAtual.ascendente = !ordemAtual.ascendente;
@@ -1297,7 +1495,11 @@ async function render() {
             const tecnicosAtivos = Array.from(new Set(actionsInPeriod.map(d => d.tecnico)));
             // CORREÇÃO: Usa o número de técnicos SELECIONADOS para o cálculo, não o de técnicos ativos.
             const qtdTecnicos = tecnicosSelecionados.size || 1;
-            const horasCapacidade = calcularCapacidade(filtroInicio, filtroFim, qtdTecnicos);
+            const horasCapacidadeBase = calcularCapacidade(filtroInicio, filtroFim, qtdTecnicos);
+            const horasCapacidade = tecnicosSelecionados.size
+                ? calcularCapacidadeTecnicos(filtroInicio, filtroFim, Array.from(tecnicosSelecionados))
+                : horasCapacidadeBase;
+            const horasAusentes = fmtH(horasCapacidadeBase - horasCapacidade);
             const eficiencia = ((totalHoras / (horasCapacidade || 1)) * 100).toFixed(1);
 
             // Card Horas
@@ -1305,7 +1507,7 @@ async function render() {
                 <div class="flex flex-col items-center">
                     <span class="text-3xl 2xl:text-5xl font-black">${totalHoras.toFixed(1)}h</span>
                     <div class="mt-2 px-4 py-1 bg-blue-500/10 rounded-full border border-blue-200 w-fit mx-auto">
-                        <span class="text-[9px] 2xl:text-xs font-black text-blue-600 uppercase">Capacidade: ${horasCapacidade}h</span>
+                        <span class="text-[9px] 2xl:text-xs font-black text-blue-600 uppercase">Capacidade: ${fmtH(horasCapacidade)}h${horasAusentes > 0 ? ` <span class="text-red-500">(−${horasAusentes}h aus.)</span>` : ''}</span>
                     </div>
                 </div>`;
 
@@ -1410,7 +1612,6 @@ function renderDetalhesIntegrantes(actions, tecnicos) {
 
     const di = document.getElementById('data-inicio').value;
     const df = document.getElementById('data-fim').value;
-    const capacityPerTec = calcularCapacidade(di, df, 1);
    const datasets = [
         {
             label: 'Horas Lançadas',
@@ -1421,7 +1622,7 @@ function renderDetalhesIntegrantes(actions, tecnicos) {
         },
         {
             label: 'Horas Estimadas',
-            data: tecnicos.map(() => capacityPerTec),
+            data: tecnicos.map(tec => calcularCapacidadeTecnico(di, df, tec)),
             // Corrigido para verde
             backgroundColor: '#22c55e', // Tailwind emerald-600
             borderRadius: 4
@@ -1478,7 +1679,7 @@ function renderCards(data) {
     const checkManual = document.getElementById('check-obs-manual');
     
     const totalH_Geral = data.reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
-    const cap_Geral = calcularCapacidade(di, df, tecnicosSelecionados.size);
+    const cap_Geral = calcularCapacidadeTecnicos(di, df, Array.from(tecnicosSelecionados));
 
     let htmlObsPorTecnico = "";
 
@@ -1489,9 +1690,11 @@ function renderCards(data) {
                 .reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
 
             let config = null;
-            if (horasTec > 41) {
+            // Faixas (34h / 41h) deslocadas pelas ausências declaradas do técnico
+            const ausTec = horasAusenciaTecnico(di, df, tec);
+            if (horasTec > 41 - ausTec) {
                 config = { label: 'Abundância', bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700' };
-            } else if (horasTec < 34) {
+            } else if (horasTec < 34 - ausTec) {
                 config = { label: 'Ausência', bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700' };
             }
 
@@ -2091,7 +2294,9 @@ async function gerarPDF() {
         const totalH = dadosGlobal.reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
         const uniqueTickets = new Set(dadosGlobal.map(d => d.cod_chamado)).size;
         const qtdTecnicos = tecnicosParaExportar.length || 1;
-        const horasCapacidade = calcularCapacidade(di, df, qtdTecnicos);
+        const horasCapacidade = tecnicosParaExportar.length
+            ? calcularCapacidadeTecnicos(di, df, tecnicosParaExportar)
+            : calcularCapacidade(di, df, qtdTecnicos);
         const aproveitamento = horasCapacidade > 0 ? ((totalH / horasCapacidade) * 100).toFixed(1) : 0;
         const mediaPorTec = (totalH / qtdTecnicos).toFixed(1);
         
@@ -2106,7 +2311,6 @@ async function gerarPDF() {
             pdf.addPage();
             const currentTechs = chunks[chunkIdx];
             
-            const capacityPerTec = calcularCapacidade(di, df, 1);
             const datasetsPdf = [
                 {
                     label: 'Horas Lançadas',
@@ -2116,7 +2320,7 @@ async function gerarPDF() {
                 },
                 {
                     label: 'Horas Estimadas',
-                    data: currentTechs.map(() => capacityPerTec),
+                    data: currentTechs.map(tec => calcularCapacidadeTecnico(di, df, tec)),
                     backgroundColor: '#22c55e', // emerald-600
                     borderRadius: 4
                 },
@@ -2255,14 +2459,15 @@ async function gerarPDF() {
             });
 
             const totalH = dadosTec.reduce((a, b) => a + (b.totalHorasChamado || 0), 0);
-            const horasMaximas = calcularCapacidade(di, df, 1);
-            const aproveitamento = ((totalH / horasMaximas) * 100).toFixed(1);
+            const horasMaximas = calcularCapacidadeTecnico(di, df, tec);
+            const ausTecPdf = horasAusenciaTecnico(di, df, tec);
+            const aproveitamento = horasMaximas > 0 ? ((totalH / horasMaximas) * 100).toFixed(1) : '0.0';
             const justificativaTexto = window.motivosSalvos && window.motivosSalvos[tec] ? window.motivosSalvos[tec] : "";
             
             let tituloJust = "Justificativa de Produtividade";
             let corDestaque = "#2563eb"; let bgDestaque = "#f8fafc";
-            if (totalH < 34) { tituloJust = "Justificativa de Ausência"; corDestaque = "#dc2626"; bgDestaque = "#fff1f2"; }
-            else if (totalH > 41) { tituloJust = "Justificativa de Abundância"; corDestaque = "#059669"; bgDestaque = "#f0fdf4"; }
+            if (totalH < 34 - ausTecPdf) { tituloJust = "Justificativa de Ausência"; corDestaque = "#dc2626"; bgDestaque = "#fff1f2"; }
+            else if (totalH > 41 - ausTecPdf) { tituloJust = "Justificativa de Abundância"; corDestaque = "#059669"; bgDestaque = "#f0fdf4"; }
 
             renderArea.innerHTML = `
                 <div style="color: #1e293b; height: 100%; display: flex; flex-direction: column;">
@@ -3318,6 +3523,7 @@ function renderVerticalChart(labels, values, colors) {
         function fecharModal() { document.getElementById('modal-log').classList.remove('modal-active'); }
         function abrirConfig() { 
             renderConfigLists();
+            renderAusenciasLista();
             document.getElementById('modal-config').classList.add('modal-active'); 
         }
         function fecharConfig() { document.getElementById('modal-config').classList.remove('modal-active'); }
@@ -3328,6 +3534,7 @@ function renderVerticalChart(labels, values, colors) {
             checkTvMode(false); // Initial check, but respect manual override
             setDefaultDates();
             loadConfigFromStorage();
+            loadAusenciasFromStorage();
             await loadTecnicoNames(); // Garante que os nomes estejam prontos antes de qualquer renderização
             loadData(); // Agora pode usar o mapa de nomes para definir o filtro padrão
             setInterval(loadData, 300000); 
